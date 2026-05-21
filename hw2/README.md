@@ -10,13 +10,10 @@ The model is a randomly-initialized 2-layer Llama built from a `LlamaConfig` (`h
 
 Two run lengths are used:
 
-- **Profiling** runs `PROFILE_STEPS = 12` decode steps so the trace stays small
-enough to navigate in Perfetto.
-- **Timing** runs `MAX_NEW_TOKENS = 128` decode steps from a `PROMPT_LEN = 1024`
-prompt, which is what the speedup numbers are measured against.
+- **Profiling** runs `PROFILE_STEPS = 12` decode steps so the trace stays small enough to navigate in Perfetto.
+- **Timing** runs `MAX_NEW_TOKENS = 128` decode steps from a `PROMPT_LEN = 1024` prompt, which is what the speedup numbers are measured against.
 
-Each "step" is one forward pass through the model, so the slow baseline does 12
-forward passes per profile and 128 per timed run.
+Each "step" is one forward pass through the model, so the slow baseline does 12 forward passes per profile and 128 per timed run.
 
 ## Speedup targets
 
@@ -28,8 +25,7 @@ Measured on an L40S against the V0 slow baseline (`slow_loop`, fp32, no KV cache
 ## File Layout
 
 - `hw2_task.py`: **your only file to edit** — implement all three functions described below
-- `utils.py`: provided helpers — `build_model`, `slow_loop`, `time_generation`,
-`get_input_ids` (do not modify)
+- `utils.py`: provided helpers — `build_model`, `slow_loop`, `time_generation`, `get_input_ids` (do not modify)
 - `results/`: output directory for Chrome trace files
 
 ## Run

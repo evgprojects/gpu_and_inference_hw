@@ -18,8 +18,6 @@ python -m pip install -r requirements.txt
 
 ---
 
-Use a fresh virtualenv for this repo. Reusing an older environment with extra
-packages can create version conflicts with the pinned dependencies.
+Use a fresh virtualenv for this repo. Reusing an older environment with extra packages can create version conflicts with the pinned dependencies.
 
-See the `README.md` inside each subfolder for task details, requirements, and
-expected outputs.
+See the `README.md` inside each subfolder for task details, requirements, and expected outputs.
