@@ -121,43 +121,35 @@ def compute_elementwise_metrics(num_elements, num_ops, bytes_per_element, ms, va
 # Why does performance rise as arithmetic intensity increases even though the
 # measured runtime changes only a little?
 #
-# A1. These kernels are memory-bound: each fused kernel still reads x once and
-# writes the result once, so the bytes transferred are the same regardless of
-# num_ops. The runtime is set by HBM bandwidth, so it stays roughly flat. But
-# the FLOPs counted in the numerator scale linearly with num_ops, so achieved
-# FLOP/s = total_flops / time climbs proportionally even though we are just
-# packing more arithmetic into the same memory transfer.
+# A1. These kernels are to the left of the ridge point, so they are memory-bound.
+# Each fused kernel reads x once and writes the result once, so the bytes transferred
+# are the same regardless of num_ops, and the transfer takes approximately the same amount of time.
+# But the FLOPs scale linearly with num_ops, so achieved FLOP/s = total_flops / time raises proportionally.
 #
 # Q2. In one sample run, `matmul 1024x1024` achieved lower FLOP/s than the
 # `128 ops` compiled element-wise operation. Give one or two reasons why that can
 # happen on a large GPU like an H100.
 #
-# A2. A 1024x1024 FP32 matmul is only ~2.1 GFLOPs of work — far too small to
-# saturate an H100's 132 SMs. It finishes in a fraction of a millisecond, so
-# kernel launch overhead and tail effects from a low-occupancy tile schedule
-# dominate. Also, the FP32 path does not use Tensor Cores, so the matmul has no
-# special hardware advantage over a fused element-wise kernel; once AI is well
-# past the ridge point, both are throughput-limited by the same FP32 CUDA-core
-# pipeline, and the element-wise loop just happens to keep that pipeline full.
+# A2. Because for a large GPU like H100, a 1024x1024 FP32 matmul is too small to saturate its SMs.
+# It finishes in a fraction of a millisecond, so kernel launch overhead and tail effects from a low-occupancy tile
+# schedule dominate. Once AI is well past the ridge point, both matmul and element-wise loop are throughput-limited
+# by the same FP32 CUDA-core pipeline, and the element-wise loop just happens to keep that pipeline full.
 #
 # Q3. Between `64 ops` and `128 ops`, runtime increases more noticeably than it
 # did for smaller operations. What does that suggest about what resource is
 # becoming the bottleneck?
 #
-# A3. We have crossed the ridge point of the roofline and become compute-bound.
-# For small num_ops the time is set by bandwidth (constant bytes, constant time).
-# Once arithmetic intensity is high enough that the FP32 ALU pipeline cannot
-# finish 2*num_ops FLOPs per element in the time it takes to stream the data,
-# additional ops add real wall-clock time, so doubling num_ops roughly doubles
-# the kernel duration.
+# A3. For num_ops in the memory bound area, i.e. from 1 to 64 ops inclusive, the time was set by bandwidth,
+# and was constant. 128 ops is on the right side of the ridge point, meaning that it's compute-bound.
+# That means that arithmetic intensity is high enough that the ALU pipeline cannot finish 2*num_ops FLOPs per element
+# in the time it takes to stream the data. The ALU pipeline becomes a bottleneck. So, additional ops add real
+# wall-clock time.
 #
 # Q4. Why do the eager `ops-K` points look so different from the compiled ones?
 #
-# A4. Eager mode runs each `acc * x` and `+ x` as a separate kernel, materializing
-# a fresh intermediate tensor for every iteration. The byte traffic grows linearly
-# with num_ops (about 6 element accesses per iteration instead of 2 total), so
-# arithmetic intensity stays pinned at a small constant (~1/12 FLOP/Byte) instead
-# of rising with num_ops. On top of that, every iteration pays kernel launch
-# overhead and re-reads x from HBM. The result is a vertical cluster of points
-# stuck on the memory-bound part of the roofline, far below the compiled curve
-# that fuses everything into a single kernel.
+# A4. Unlike compiled mode, eager mode runs each `acc * x` and `+ x` as a separate kernel for every iteration.
+# That makes the byte traffic grow linearly with num_ops (about 6 element accesses per iteration instead of 2 total), so
+# arithmetic intensity stays pinned at a small constant instead of rising with num_ops. Also, every iteration pays
+# kernel launch overhead and re-reads x from HBM. The result is a vertical cluster of points
+# stuck on the memory-bound part of the roofline, far below the compiled curve that fuses everything into a
+# single kernel.
