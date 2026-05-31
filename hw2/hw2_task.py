@@ -101,38 +101,31 @@ if __name__ == "__main__":
 # Writeup
 # ============================================================================
 #
+# Total speed up is 5.73x: 1.61s slow VS 0.28s optimised.
 # Changes made and speedup per fix (measured cumulatively on L40S vs V0 fp32):
 #
-# 1. KV cache via DynamicCache + use_cache=True.
-#    V0 re-runs the full prompt every step, so step t does O(prompt+t) work.
-#    With the cache, prefill happens once and each decode step processes a
-#    single token using cached K/V from prior steps. This is the dominant
-#    structural fix — without it the loop is O(N^2) in total tokens.
+# 1. KV cache via DynamicCache and use_cache=True.
+#    V0 re-runs the full prompt every step. With the cache, prefill happens
+#    once and each decode step processes a single token using cached K/V from prior steps. This is the main
+#    structural fix. Without it the loop is O(N^2) in total tokens.
 #
 # 2. bf16 model dtype.
 #    fp32 matmuls don't hit the L40S tensor cores and move 2x the bytes.
 #    Switching the build to torch.bfloat16 cuts memory bandwidth in half
 #    and routes the GEMMs through tensor cores.
 #
-# 3. Drop the per-step .item() sync.
-#    .item() forces a CPU<->GPU sync every iteration, which serializes the
-#    launch queue and starves the GPU. The optimized loop writes each token
-#    into a preallocated GPU buffer and calls .tolist() once at the end.
+# 3. Stop using .item() sync on each step to avoid a CPU<->GPU sync every iteration, which starves the GPU.
+#    The optimized loop writes each token into a preallocated GPU buffer and calls .tolist() once at the end.
 #
-# 4. torch.inference_mode() around the loop.
-#    Removes autograd bookkeeping (version counters, view tracking) that
-#    .no_grad() still pays. Small but free win on a hot loop.
+# 4. torch.inference_mode() around the loop. Removes autograd bookkeeping.
 #
-# 5. Avoid the growing torch.cat([generated_ids, next_token_id]) — with the
+# 5. Avoid the growing torch.cat([generated_ids, next_token_id]). With the
 #    KV cache we only ever feed the latest token, so the concat disappears
-#    entirely (no allocator churn, no copy of an N-token tensor each step).
+#    entirely.
 #
-# Biggest impact and why:
 #
-# The KV cache change is by far the biggest win. In the V0 trace each step's
+# The KV cache change has had the biggest impact. In the V0 trace each step's
 # GPU stream gets longer than the last because attention re-scans the entire
-# prefix; in the optimized trace every decode step is a fixed-cost slice
-# (one-token QKV projection + cached attention + MLP). For PROMPT_LEN=1024
+# prefix. In the optimized trace every decode step has a fixed-cost. For PROMPT_LEN=1024
 # and 128 new tokens, this collapses ~1024-1151 tokens of recomputation per
-# step down to 1. bf16 is the second-biggest contributor — it's a constant
-# factor (~2x) but stacks on top of the algorithmic fix.
+# step down to 1. bf16 is the second-biggest contributor with a constant factor (~2x).
